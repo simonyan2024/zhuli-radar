@@ -1,0 +1,29 @@
+# 推送到 main/master 后，调用 Render Deploy Hook 触发重新部署
+# 需在仓库 Settings → Secrets 中配置：RENDER_DEPLOY_HOOK
+name: Deploy Render
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "未配置 secrets.RENDER_DEPLOY_HOOK，跳过部署。"
+            echo "在 Render 服务 Settings → Deploy Hook 复制 URL，"
+            echo "再到 GitHub 仓库 Settings → Secrets and variables → Actions 添加 RENDER_DEPLOY_HOOK。"
+            exit 0
+          fi
+          code=$(curl -sS -o /tmp/render_out -w "%{http_code}" -X POST "$HOOK")
+          echo "HTTP $code"
+          cat /tmp/render_out || true
+          if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+            exit 1
+          fi
