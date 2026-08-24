@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0c0d0b" />
+  <title>主力鉴 · 研究雷达</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="app">
+      <div class="brand">
+        <h1>主力鉴</h1>
+        <span>上证主板 · 研究雷达</span>
+      </div>
+      <div class="header-right">
+        <span id="sessionPill" class="pill">—</span>
+        <span id="silentPill" class="pill">—</span>
+        <span id="clock" class="pill mono">—</span>
+        <div class="nav">
+          <button type="button" data-view="radar" class="active">雷达</button>
+          <button type="button" data-view="backtest">回测</button>
+          <button type="button" data-view="rules">规则</button>
+        </div>
+      </div>
+    </header>
+
+    <section id="view-radar">
+      <div class="grid home">
+        <aside class="card" id="indexCard">
+          <div class="subtle" style="font-size:0.75rem">上证指数</div>
+          <div id="idxPrice" class="index-price tabular">—</div>
+          <div id="idxChange" class="tabular" style="margin-top:0.25rem">—</div>
+          <svg id="spark" class="spark" viewBox="0 0 300 64" preserveAspectRatio="none"></svg>
+          <div id="regimeBox" class="muted" style="font-size:0.85rem;margin-top:0.75rem">加载中…</div>
+          <div class="index-meta" id="indexMeta"></div>
+          <p id="scanNote" class="subtle" style="font-size:0.75rem;margin:0.85rem 0 0"></p>
+        </aside>
+
+        <div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
+              <h2 style="margin:0">扫描回波</h2>
+              <span id="statsLine" class="subtle tabular" style="font-size:0.8rem"></span>
+            </div>
+            <div class="filters" id="levelFilters">
+              <button type="button" data-level="全部" class="active">全部</button>
+              <button type="button" data-level="可关注">可关注</button>
+              <button type="button" data-level="观察">观察</button>
+              <button type="button" data-level="谨慎">谨慎</button>
+              <button type="button" data-level="回避">回避</button>
+              <button type="button" data-level="热门板块">热门板块</button>
+            </div>
+            <div id="echoList" class="loading">正在扫描公开行情…</div>
+          </div>
+
+          <div class="card" style="margin-top:1rem">
+            <h2>板块相对强度</h2>
+            <p class="subtle" style="font-size:0.8rem;margin:0 0 0.5rem">按行业标签聚合当日涨跌，相对上证超额；拥挤板块会降权展示。</p>
+            <div id="sectorList" class="loading">计算中…</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-backtest" class="hidden">
+      <div class="card">
+        <h2>规则回测</h2>
+        <p class="muted" style="font-size:0.9rem">对成交额靠前的主板样本，按级别过滤开仓；弱势空头静默；收盘信号、成本与 T+1 近似。公开数据演示。</p>
+        <div class="toolbar">
+          <label>允许开仓级别
+            <select id="btLevels">
+              <option value="可关注">仅可关注</option>
+              <option value="可关注,观察">可关注+观察</option>
+            </select>
+          </label>
+          <label>最多持仓
+            <input id="btHold" type="number" min="1" max="15" value="8" style="width:4rem" />
+          </label>
+          <button type="button" class="primary" id="btRun">运行回测</button>
+        </div>
+        <div id="btResult" class="muted">点击运行后在此显示结果。</div>
+      </div>
+    </section>
+
+    <section id="view-rules" class="hidden">
+      <div class="card">
+        <h2>现行扫描规则（只读说明）</h2>
+        <ol class="muted" style="font-size:0.9rem;line-height:1.7;padding-left:1.2rem">
+          <li><strong>大盘闸门</strong>：弱势空头 → 雷达静默，不主动给出可关注列表。</li>
+          <li><strong>股票池</strong>：上证主板成交额靠前 + 核心权重，排除科创板。</li>
+          <li><strong>板块层</strong>：行业名自动归类，看相对上证超额与广度；拥挤则标记。</li>
+          <li><strong>个股层</strong>：量价阶段（吸筹/洗盘/拉升/出货/下跌/横盘）+ 相对强弱 + 手法标签。</li>
+          <li><strong>定级</strong>：可关注 / 观察 / 谨慎 / 回避；否决优先于追涨。</li>
+          <li><strong>新闻</strong>：一期未接自动源；规格中为可插拔事件层（公告优先）。</li>
+        </ol>
+        <p class="subtle" style="font-size:0.8rem;margin-top:1rem">研究辅助，不构成投资建议。A 股 T+1，涨跌停与公开数据延迟会影响实盘。</p>
+      </div>
+    </section>
+
+    <p class="footer-note">
+      主力鉴 · 个人研究雷达演示。行情来自公开接口，可能延迟或失败。刷新周期内大盘与扫描结果共用时间戳。
+    </p>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
