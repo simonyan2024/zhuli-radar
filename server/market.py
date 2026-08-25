@@ -165,6 +165,15 @@ def fetch_index_klines(count: int = 120) -> list[dict]:
     cached = _cache_get(f"index_k_{count}", _CACHE_TTL["klines"])
     if cached:
         return cached
+    # Prefer easy_tdx when available
+    try:
+        from .tdx_bridge import tdx_index_klines
+        tb = tdx_index_klines(count)
+        if tb and len(tb) >= 20:
+            _cache_set(f"index_k_{count}", tb)
+            return tb
+    except Exception:
+        pass
     url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000001,day,,,{count},qfq"
     data = json.loads(_get_text(url))
     pack = (data.get("data") or {}).get("sh000001") or {}
@@ -280,6 +289,14 @@ def fetch_klines(code: str, count: int = 90) -> list[dict]:
     cached = _cache_get(key, _CACHE_TTL["klines"])
     if cached:
         return cached
+    try:
+        from .tdx_bridge import tdx_stock_klines
+        tb = tdx_stock_klines(code, count)
+        if tb and len(tb) >= 15:
+            _cache_set(key, tb)
+            return tb
+    except Exception:
+        pass
     symbol = f"sh{code}"
     url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={symbol},day,,,{count},qfq"
     try:
@@ -354,3 +371,55 @@ def fetch_klines_batch(codes: list[str], count: int = 90, workers: int = 12) -> 
             code, bars = f.result()
             result[code] = bars
     return result
+
+
+def normalize_code(raw: str) -> str:
+    s = (raw or "").strip().upper()
+    s = s.replace("SH", "").replace("SZ", "").replace(".", "")
+    s = "".join(ch for ch in s if ch.isdigit())
+    if len(s) > 6:
+        s = s[-6:]
+    return s.zfill(6) if s else ""
+
+
+def fetch_stock_quote(code: str) -> dict:
+    """Single SSE main-board quote: TDX first, then Tencent."""
+    code = normalize_code(code)
+    if not code:
+        raise ValueError("请输入股票代码")
+    if not is_sse_main(code):
+        raise ValueError("当前仅支持上证主板（600/601/603/605）")
+    try:
+        from .tdx_bridge import tdx_stock_quote
+        tq = tdx_stock_quote(code)
+        if tq and tq.get("price"):
+            if not tq.get("industry"):
+                tq["industry"] = classify_industry(tq.get("name") or code)
+            return tq
+    except Exception:
+        pass
+    text = _get_text(f"https://qt.gtimg.cn/q=sh{code}", encoding="gbk")
+    m = __import__("re").search(r'="([^"]*)"', text)
+    if not m or not m.group(1) or m.group(1) == "1":
+        raise RuntimeError(f"未找到股票 {code}")
+    p = m.group(1).split("~")
+    if len(p) < 6 or not p[1]:
+        raise RuntimeError(f"未找到股票 {code}")
+    price = float(p[3] or 0)
+    prev = float(p[4] or 0)
+    name = p[1]
+    return {
+        "code": code,
+        "name": name,
+        "price": price,
+        "prevClose": prev,
+        "open": float(p[5] or 0),
+        "high": float(p[33] or price) if len(p) > 33 else price,
+        "low": float(p[34] or price) if len(p) > 34 else price,
+        "change": round(price - prev, 2),
+        "changePct": round((price - prev) / prev * 100, 2) if prev else 0,
+        "volume": float(p[6] or 0),
+        "amount": float(p[37] or 0) * 10000 if len(p) > 37 else 0,
+        "turnover": float(p[38] or 0) if len(p) > 38 else 0,
+        "industry": classify_industry(name),
+    }

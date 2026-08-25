@@ -97,3 +97,56 @@ def run_scan(force: bool = False, pool_size: int = 48) -> dict:
     _scan_cache = payload
     _scan_at = time.time()
     return payload
+
+
+def analyze_code(code: str) -> dict:
+    """Full single-stock radar analysis."""
+    from .market import (
+        fetch_stock_quote,
+        fetch_klines,
+        fetch_index_klines,
+        fetch_index_quote,
+        merge_live_bar,
+        market_session,
+        session_label,
+        shanghai_date,
+        normalize_code,
+    )
+    from .analyze import analyze_index, analyze_stock
+
+    code = normalize_code(code)
+    quote = fetch_stock_quote(code)
+    index_q = fetch_index_quote()
+    index_bars = fetch_index_klines(120)
+    index_meta = analyze_index(index_bars, index_q["price"])
+    bars = merge_live_bar(fetch_klines(code, 120), quote)
+    analysis = analyze_stock(bars, index_bars, quote, index_meta["regime"])
+    indicators = {}
+    fund_flow = None
+    data_source = "public"
+    try:
+        from .tdx_bridge import compute_tech_indicators, indicator_hints, tdx_fund_flow, easy_tdx_available
+        indicators = compute_tech_indicators(bars)
+        hints = indicator_hints(indicators, analysis.get("phase") or "")
+        if hints:
+            analysis.setdefault("evidence", []).extend(hints)
+        if easy_tdx_available():
+            data_source = "easy_tdx+public"
+            fund_flow = tdx_fund_flow(code)
+    except Exception:
+        indicators = {}
+    return {
+        "ok": True,
+        "asOf": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        "date": shanghai_date(),
+        "session": market_session(),
+        "sessionLabel": session_label(market_session()),
+        "quote": quote,
+        "analysis": analysis,
+        "indicators": indicators,
+        "fundFlow": fund_flow,
+        "dataSource": data_source,
+        "index": {**index_q, **index_meta},
+        "bars": bars[-60:],
+        "note": "个股：量价阶段+相对上证为主；MACD/RSI/布林为辅助。有 easy-tdx 时优先通达信数据。仅研究参考。",
+    }

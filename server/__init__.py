@@ -1,1 +1,1 @@
-# 主力鉴 radar server package
+# 主力雷达 server package
