@@ -115,6 +115,14 @@ def analyze_stock(bars: list[dict], index_bars: list[dict], quote: dict, regime:
             "vsIndexDetail": "K线过短",
             "level": "观察",
             "levelReason": "历史不足，仅观察。",
+            "buyAdvice": {
+                "action": "不建议买入",
+                "strength": "无",
+                "summary": "K线样本不足，无法形成买入建议。",
+                "reasons": ["有效交易日不足，证据链不完整。"],
+                "risks": ["数据不足导致误判风险高。"],
+                "plan": "待积累足够日K后再评估。",
+            },
             "scores": {"force": 20, "quality": 20, "risk": 50},
             "evidence": ["有效交易日不足25日"],
             "sample": "short",
@@ -281,6 +289,85 @@ def analyze_stock(bars: list[dict], index_bars: list[dict], quote: dict, regime:
         vs_d,
     ]
 
+    # --- 买入建议（研究用，非投资承诺）---
+    buy_reasons = []
+    buy_risks = []
+    if regime == "弱势空头":
+        buy_risks.append("大盘弱势空头，雷达默认不开主动买入建议。")
+    elif weak:
+        buy_risks.append(f"大盘处于{regime}，系统性风险偏高。")
+    else:
+        buy_reasons.append(f"大盘环境为「{regime}」，未触发空头静默。")
+
+    if phase in ("吸筹", "洗盘") and not weak:
+        buy_reasons.append(f"量价阶段判为「{phase}」（置信约{round(conf)}%），偏左侧/中继结构。")
+    if phase == "拉升" and strong and pos60 <= 0.88:
+        buy_reasons.append(f"主升阶段且位置未极端过伸（60日分位{pos60*100:.0f}%）。")
+    if vs in ("抗跌", "领涨"):
+        buy_reasons.append(f"相对上证表现：{vs}。{vs_d}")
+    if mind in ("逆势吸筹", "低位吸筹", "清洗浮筹", "强势控盘"):
+        buy_reasons.append(f"主力语义标签：{mind}。")
+    for tac in tactics:
+        if tac.get("side") == "多":
+            buy_reasons.append(f"多头手法「{tac['name']}」：{tac.get('evidence','')}")
+        elif tac.get("side") == "空":
+            buy_risks.append(f"空头手法「{tac['name']}」：{tac.get('evidence','')}")
+
+    if phase in ("出货", "下跌"):
+        buy_risks.append(f"阶段为「{phase}」，不支持买入叙事。")
+    if vol_stall and pos60 > 0.6:
+        buy_risks.append("高位放量滞涨，量价背离风险。")
+    if pos60 > 0.88:
+        buy_risks.append("60日位置过高，追高盈亏比差。")
+    if bad_tactics:
+        buy_risks.append("出现警示手法：" + "、".join(sorted(bad_tactics)) + "。")
+
+    # action mapping from level + regime
+    if regime == "弱势空头" or level == "回避":
+        action, strength = "不建议买入", "无"
+        plan = "优先回避或观望；若持仓以风控为主，不新增仓。"
+        summary = reason
+    elif level == "谨慎":
+        action, strength = "暂不买入", "弱"
+        plan = "等待大盘转稳或个股回踩确认后再评估；不追涨。"
+        summary = reason
+    elif level == "观察":
+        action, strength = "观望（可记入观察池）", "弱"
+        plan = "放入观察列表，等待价量或大盘出现确认信号，不急于买入。"
+        summary = reason
+    elif level == "可关注":
+        if phase in ("吸筹", "洗盘"):
+            action, strength = "可考虑分批低吸（研究建议）", "中"
+            plan = "仅小仓试错思路：回踩支撑/缩量企稳再看，不一次性重仓；严格止损与T+1约束。"
+        elif phase == "拉升":
+            action, strength = "可关注回踩再介入（研究建议）", "中"
+            plan = "不建议猛追涨停式打法；优先等短线回踩均线或缩量整理后再评估。"
+        else:
+            action, strength = "可关注", "中"
+            plan = "结合自身风险承受力，小仓位研究性参与，预设退出条件。"
+        summary = reason
+        if not buy_reasons:
+            buy_reasons.append(level + "：" + reason)
+    else:
+        action, strength = "观望", "无"
+        plan = "维持观察。"
+        summary = reason
+
+    if not buy_reasons and action.startswith("可"):
+        buy_reasons.append(summary)
+    if not buy_risks:
+        buy_risks.append("公开数据延迟、模型误判、黑天鹅与涨跌停无法预知。")
+    buy_risks.append("本结论为规则研究输出，不构成投资建议；A股T+1，亏损可能。")
+
+    buy_advice = {
+        "action": action,
+        "strength": strength,
+        "summary": summary,
+        "reasons": buy_reasons[:8],
+        "risks": buy_risks[:8],
+        "plan": plan,
+    }
+
     force = min(95, max(15, conf * 0.5 + (18 if phase in ("拉升", "吸筹") else 0) + min(15, abs(resid20) * 200)))
     quality = min(95, max(15, 40 + (15 if phase in ("吸筹", "洗盘", "拉升") else 0) - (20 if vol_stall else 0)))
     risk = min(95, max(15, 30 + (25 if phase in ("出货", "下跌") else 0) + (12 if weak else 0) + (10 if pos60 > 0.9 else 0)))
@@ -294,6 +381,7 @@ def analyze_stock(bars: list[dict], index_bars: list[dict], quote: dict, regime:
         "vsIndexDetail": vs_d,
         "level": level,
         "levelReason": reason,
+        "buyAdvice": buy_advice,
         "scores": {"force": round(force), "quality": round(quality), "risk": round(risk)},
         "evidence": evidence,
         "sample": "ok",
