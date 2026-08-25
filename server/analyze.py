@@ -105,26 +105,27 @@ def _align(a: list[dict], b: list[dict]) -> tuple[list[dict], list[dict]]:
 
 
 def analyze_stock(bars: list[dict], index_bars: list[dict], quote: dict, regime: str) -> dict:
-    if len(bars) < 25:
+    # 少於 12 根：无法分析；12～24 根：降级分析（标注 sample=partial）
+    if len(bars) < 12:
         return {
             "phase": "横盘",
-            "phaseConfidence": 30,
+            "phaseConfidence": 20,
             "mind": "样本不足",
             "tactics": [],
             "vsIndex": "独立",
-            "vsIndexDetail": "K线过短",
+            "vsIndexDetail": f"仅{len(bars)}根K线",
             "level": "观察",
-            "levelReason": "历史不足，仅观察。",
+            "levelReason": "行情源返回K线过少，请稍后重试或换网络环境。",
             "buyAdvice": {
-                "action": "不建议买入",
+                "action": "暂不评估",
                 "strength": "无",
-                "summary": "K线样本不足，无法形成买入建议。",
-                "reasons": ["有效交易日不足，证据链不完整。"],
-                "risks": ["数据不足导致误判风险高。"],
-                "plan": "待积累足够日K后再评估。",
+                "summary": "K线条数不足，暂停买入评估。",
+                "reasons": [f"当前仅{len(bars)}根日K（需至少约12根才能做降级判断）。"],
+                "risks": ["多半是公开行情源限流/海外访问失败，不是股票本身无数据。"],
+                "plan": "稍后重新分析；国内网络或本机部署通常可拉满K线。",
             },
-            "scores": {"force": 20, "quality": 20, "risk": 50},
-            "evidence": ["有效交易日不足25日"],
+            "scores": {"force": 15, "quality": 15, "risk": 60},
+            "evidence": [f"有效交易日{len(bars)}，低于最低门槛"],
             "sample": "short",
         }
 
@@ -383,8 +384,8 @@ def analyze_stock(bars: list[dict], index_bars: list[dict], quote: dict, regime:
         "levelReason": reason,
         "buyAdvice": buy_advice,
         "scores": {"force": round(force), "quality": round(quality), "risk": round(risk)},
-        "evidence": evidence,
-        "sample": "ok",
+        "evidence": evidence + ([f"K线仅{len(s_bars)}根，结论为降级分析"] if len(s_bars) < 25 else []),
+        "sample": "partial" if len(s_bars) < 25 else "ok",
         "features": {
             "pos60": round(pos60, 3),
             "volRatio": round(vol_ratio, 2),

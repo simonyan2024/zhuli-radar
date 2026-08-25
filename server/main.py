@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="主力雷达", version="0.3.0")
+app = FastAPI(title="主力雷达", version="0.4.0")
 
 
 def _lazy_scan():
@@ -39,16 +39,22 @@ def health():
             tdx = easy_tdx_available()
         except Exception:
             tdx = False
+        try:
+            from .data_providers import providers_status
+            providers = providers_status()
+        except Exception:
+            providers = {}
         return {
             "ok": True,
             "session": session_label(market_session()),
             "static": STATIC.exists(),
-            "version": "0.3.0",
+            "version": "0.4.0",
             "easyTdx": tdx,
-            "features": ["radar", "stock", "watch", "indicators", "backtest"],
+            "providers": providers,
+            "features": ["radar", "stock", "watch", "indicators", "backtest", "akshare", "tushare"],
         }
     except Exception as e:
-        return {"ok": True, "session": "unknown", "warn": str(e), "version": "0.3.0"}
+        return {"ok": True, "session": "unknown", "warn": str(e), "version": "0.4.0"}
 
 
 @app.get("/api/routes")

@@ -48,14 +48,16 @@ def run_scan(force: bool = False, pool_size: int = 28, max_price: float = 30.0) 
 
     # Always compute stock features (even if silent — UI can hide active list)
     codes = [q["code"] for q in quotes]
-    kmap = fetch_klines_batch(codes, 60, workers=6)
+    kmap = fetch_klines_batch(codes, 90, workers=8)
 
     echoes = []
     for q in quotes:
         bars = merge_live_bar(kmap.get(q["code"]) or [], q)
-        if len(bars) < 5:
+        if len(bars) < 12:
             continue
         analysis = analyze_stock(bars, index_bars, q, index_meta["regime"])
+        if analysis.get("sample") == "short":
+            continue
         echoes.append({
             "quote": q,
             "analysis": analysis,

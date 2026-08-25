@@ -262,6 +262,24 @@ def fetch_index_klines(count: int = 120) -> list[dict]:
             return tb
     except Exception:
         pass
+    # AkShare
+    try:
+        from .data_providers import ak_index_klines
+        tb = ak_index_klines(count)
+        if tb and len(tb) >= 20:
+            _cache_set(f"index_k_{count}", tb)
+            return tb
+    except Exception:
+        pass
+    # Tushare
+    try:
+        from .data_providers import ts_index_klines
+        tb = ts_index_klines(count)
+        if tb and len(tb) >= 20:
+            _cache_set(f"index_k_{count}", tb)
+            return tb
+    except Exception:
+        pass
 
     bars: list[dict] = []
     # 1) Tencent
@@ -405,11 +423,25 @@ def fetch_quotes_tencent(codes: list[str]) -> dict[str, dict]:
 
 
 def fetch_main_board_quotes(limit: int = 80) -> list[dict]:
-    """Liquid pool: Sina amount-rank when possible, else Tencent core list."""
+    """Liquid pool: AkShare/Sina amount-rank when possible, else Tencent core list."""
     cached = _cache_get(f"quotes_{limit}", _CACHE_TTL["quotes"])
     if cached:
         return cached
     out: dict[str, dict] = {}
+
+    # 0) AkShare spot
+    try:
+        from .data_providers import ak_spot_quotes
+        ak_list = ak_spot_quotes(max(limit, 80))
+        if ak_list:
+            for q in ak_list:
+                code = q["code"]
+                if not is_allowed_symbol(code):
+                    continue
+                q = {**q, "industry": classify_industry(q.get("name") or code)}
+                out[code] = q
+    except Exception:
+        pass
 
     # 1) Sina ranked list (often blocked overseas with 501)
     try:
@@ -485,7 +517,24 @@ def fetch_klines(code: str, count: int = 90) -> list[dict]:
             return tb
     except Exception:
         pass
-    symbol = f"{market_prefix(code)}{code}"
+    pref = market_prefix(code)
+    try:
+        from .data_providers import ak_stock_klines
+        tb = ak_stock_klines(code, pref, count)
+        if tb and len(tb) >= 15:
+            _cache_set(key, tb)
+            return tb
+    except Exception:
+        pass
+    try:
+        from .data_providers import ts_stock_klines
+        tb = ts_stock_klines(code, pref, count)
+        if tb and len(tb) >= 15:
+            _cache_set(key, tb)
+            return tb
+    except Exception:
+        pass
+    symbol = f"{pref}{code}"
     bars: list[dict] = []
     # tencent
     try:
@@ -525,6 +574,32 @@ def fetch_klines(code: str, count: int = 90) -> list[dict]:
             ]
         except Exception:
             pass
+
+    # sohu history (often reachable)
+    if len(bars) < 12:
+        try:
+            from datetime import datetime, timedelta
+            end_d = datetime.now().strftime("%Y%m%d")
+            start_d = (datetime.now() - timedelta(days=int(count * 2))).strftime("%Y%m%d")
+            prefix = "cn_"
+            url = f"https://q.stock.sohu.com/hisHq?code={prefix}{code}&start={start_d}&end={end_d}&stat=1&order=A"
+            data = json.loads(_get_text(url))
+            rows = (data[0].get("hq") if data else None) or []
+            if rows:
+                bars = []
+                for r in rows:
+                    ds = str(r[0]).replace("/", "-")
+                    bars.append({
+                        "date": ds,
+                        "open": float(r[1]),
+                        "close": float(r[2]),
+                        "low": float(r[5]),
+                        "high": float(r[6]),
+                        "volume": float(r[7]) if len(r) > 7 else 0,
+                    })
+        except Exception:
+            pass
+
     if bars:
         _cache_set(key, bars)
     return bars  # may be empty — caller skips
