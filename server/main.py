@@ -90,6 +90,12 @@ def api_diag():
     except Exception as e:
         info["steps"]["quotes"] = {"ok": False, "error": str(e)}
     try:
+        from .market import fetch_index_klines
+        ib = fetch_index_klines(30)
+        info["steps"]["index_kline"] = {"ok": bool(ib), "n": len(ib or [])}
+    except Exception as e:
+        info["steps"]["index_kline"] = {"ok": False, "error": str(e)}
+    try:
         code = (info["steps"].get("quotes") or {}).get("sample") or "600519"
         bars = fetch_klines(code, 20)
         info["steps"]["kline"] = {"ok": bool(bars), "n": len(bars), "code": code}

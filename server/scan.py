@@ -30,7 +30,7 @@ def run_scan(force: bool = False, pool_size: int = 28, max_price: float = 30.0) 
     t0 = time.time()
     session = market_session()
     index_q = fetch_index_quote()
-    index_bars = fetch_index_klines(120)
+    index_bars = fetch_index_klines(80)
     index_meta = analyze_index(index_bars, index_q["price"])
     silent = bool(index_meta["silent"])
 
@@ -48,7 +48,7 @@ def run_scan(force: bool = False, pool_size: int = 28, max_price: float = 30.0) 
 
     # Always compute stock features (even if silent — UI can hide active list)
     codes = [q["code"] for q in quotes]
-    kmap = fetch_klines_batch(codes, 90, workers=14)
+    kmap = fetch_klines_batch(codes, 60, workers=6)
 
     echoes = []
     for q in quotes:
@@ -128,7 +128,7 @@ def analyze_code(code: str) -> dict:
     code = normalize_code(code)
     quote = fetch_stock_quote(code)
     index_q = fetch_index_quote()
-    index_bars = fetch_index_klines(120)
+    index_bars = fetch_index_klines(80)
     index_meta = analyze_index(index_bars, index_q["price"])
     bars = merge_live_bar(fetch_klines(code, 120), quote)
     analysis = analyze_stock(bars, index_bars, quote, index_meta["regime"])
