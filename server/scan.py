@@ -22,7 +22,7 @@ _scan_at = 0.0
 SCAN_TTL = 18
 
 
-def run_scan(force: bool = False, pool_size: int = 48) -> dict:
+def run_scan(force: bool = False, pool_size: int = 28) -> dict:
     global _scan_cache, _scan_at
     if not force and _scan_cache and time.time() - _scan_at < SCAN_TTL:
         return _scan_cache
@@ -45,6 +45,8 @@ def run_scan(force: bool = False, pool_size: int = 48) -> dict:
     echoes = []
     for q in quotes:
         bars = merge_live_bar(kmap.get(q["code"]) or [], q)
+        if len(bars) < 5:
+            continue
         analysis = analyze_stock(bars, index_bars, q, index_meta["regime"])
         echoes.append({
             "quote": q,

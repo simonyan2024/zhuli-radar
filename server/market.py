@@ -22,6 +22,11 @@ CORE_CODES = [
     "600276", "603259", "600030", "601398", "600887", "600309",
     "600406", "601888", "600000", "601288", "600028", "601857",
     "600104", "601601", "600016", "601328", "600050", "601668",
+    "600031", "600048", "600111", "600150", "600196", "600276",
+    "600438", "600585", "600690", "600809", "600893", "600938",
+    "601012", "601088", "601225", "601318", "601628", "601633",
+    "601668", "601728", "601766", "601919", "601985", "603288",
+    "603501", "603799", "605117", "605499",
 ]
 
 # Simple industry tags for demo auto-classification
@@ -92,18 +97,41 @@ def is_sse_main(code: str) -> bool:
     return bool(re.match(r"^(600|601|603|605)\d{3}$", c))
 
 
-def _get(url: str, timeout: float = 12) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": "https://finance.sina.com.cn/"})
+def _get(url: str, timeout: float = 12, referer: str | None = None) -> bytes:
+    headers = {
+        "User-Agent": UA,
+        "Accept": "*/*",
+        "Connection": "close",
+    }
+    if referer:
+        headers["Referer"] = referer
+    elif "sina" in url:
+        headers["Referer"] = "https://finance.sina.com.cn/"
+    elif "gtimg" in url or "qq.com" in url:
+        headers["Referer"] = "https://finance.qq.com/"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
 
 
-def _get_text(url: str, encoding: str = "utf-8") -> str:
-    raw = _get(url)
+def _get_text(url: str, encoding: str = "utf-8", referer: str | None = None) -> str:
+    raw = _get(url, referer=referer)
     try:
         return raw.decode(encoding)
     except UnicodeDecodeError:
         return raw.decode("gbk", errors="ignore")
+
+
+def _get_text_any(urls: list[tuple[str, str]], encoding: str = "utf-8") -> str:
+    """Try (url, referer) pairs; raise last error."""
+    last = None
+    for url, ref in urls:
+        try:
+            return _get_text(url, encoding=encoding, referer=ref)
+        except Exception as e:
+            last = e
+            continue
+    raise last or RuntimeError("all sources failed")
 
 
 def _cache_get(key: str, ttl: float):
@@ -210,78 +238,126 @@ def fetch_index_klines(count: int = 120) -> list[dict]:
     return bars
 
 
-def fetch_main_board_quotes(limit: int = 80) -> list[dict]:
-    cached = _cache_get(f"quotes_{limit}", _CACHE_TTL["quotes"])
-    if cached:
-        return cached
-    url = (
-        "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-        f"Market_Center.getHQNodeData?page=1&num={limit}&sort=amount&asc=0&node=sh_a"
-    )
-    rows = json.loads(_get_text(url))
+def _parse_tencent_quotes(text: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
-    for r in rows:
-        code = str(r.get("code") or "").zfill(6)
+    for part in text.strip().split(";"):
+        if '="' not in part:
+            continue
+        body = part.split('="')[1].rstrip('"')
+        p = body.split("~")
+        if len(p) < 6:
+            continue
+        code = (p[2] or "").zfill(6)
         if not is_sse_main(code):
             continue
-        name = r.get("name") or code
-        price = float(r.get("trade") or 0)
-        prev = float(r.get("settlement") or 0)
+        price = float(p[3] or 0)
+        prev = float(p[4] or 0)
+        if price <= 0:
+            continue
+        name = p[1] or code
         out[code] = {
             "code": code,
             "name": name,
             "price": price,
             "prevClose": prev,
-            "open": float(r.get("open") or 0),
-            "high": float(r.get("high") or 0),
-            "low": float(r.get("low") or 0),
-            "change": float(r.get("pricechange") or 0),
-            "changePct": float(r.get("changepercent") or 0),
-            "volume": float(r.get("volume") or 0),
-            "amount": float(r.get("amount") or 0),
-            "turnover": float(r.get("turnoverratio") or 0),
+            "open": float(p[5] or 0),
+            "high": float(p[33] or price) if len(p) > 33 else price,
+            "low": float(p[34] or price) if len(p) > 34 else price,
+            "change": round(price - prev, 2),
+            "changePct": round((price - prev) / prev * 100, 2) if prev else 0,
+            "volume": float(p[6] or 0),
+            "amount": float(p[37] or 0) * 10000 if len(p) > 37 else 0,
+            "turnover": float(p[38] or 0) if len(p) > 38 else 0,
             "industry": classify_industry(name),
         }
-    # ensure core codes present via tencent if missing
-    missing = [c for c in CORE_CODES if c not in out]
-    if missing:
-        for batch in [missing[i : i + 20] for i in range(0, len(missing), 20)]:
-            q = ",".join(f"sh{c}" for c in batch)
+    return out
+
+
+def fetch_quotes_tencent(codes: list[str]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for i in range(0, len(codes), 40):
+        batch = codes[i : i + 40]
+        q = ",".join(f"sh{c}" for c in batch)
+        try:
+            text = _get_text(
+                f"https://qt.gtimg.cn/q={q}",
+                encoding="gbk",
+                referer="https://finance.qq.com/",
+            )
+            out.update(_parse_tencent_quotes(text))
+        except Exception:
+            # secondary host
             try:
-                text = _get_text(f"https://qt.gtimg.cn/q={q}", encoding="gbk")
-                for part in text.strip().split(";"):
-                    if "=\"" not in part:
-                        continue
-                    body = part.split('="')[1].rstrip('"')
-                    p = body.split("~")
-                    if len(p) < 6:
-                        continue
-                    code = p[2]
-                    if not is_sse_main(code):
-                        continue
-                    price = float(p[3] or 0)
-                    prev = float(p[4] or 0)
-                    name = p[1]
-                    out[code] = {
-                        "code": code,
-                        "name": name,
-                        "price": price,
-                        "prevClose": prev,
-                        "open": float(p[5] or 0),
-                        "high": float(p[33] or price) if len(p) > 33 else price,
-                        "low": float(p[34] or price) if len(p) > 34 else price,
-                        "change": round(price - prev, 2),
-                        "changePct": round((price - prev) / prev * 100, 2) if prev else 0,
-                        "volume": float(p[6] or 0),
-                        "amount": float(p[37] or 0) * 10000 if len(p) > 37 else 0,
-                        "turnover": 0,
-                        "industry": classify_industry(name),
-                    }
+                text = _get_text(
+                    f"https://qt.gtimg.cn/q={q}",
+                    encoding="gbk",
+                    referer=None,
+                )
+                out.update(_parse_tencent_quotes(text))
             except Exception:
                 continue
-    ranked = sorted(out.values(), key=lambda x: x["amount"], reverse=True)
+    return out
+
+
+def fetch_main_board_quotes(limit: int = 80) -> list[dict]:
+    """Liquid pool: Sina amount-rank when possible, else Tencent core list."""
+    cached = _cache_get(f"quotes_{limit}", _CACHE_TTL["quotes"])
+    if cached:
+        return cached
+    out: dict[str, dict] = {}
+
+    # 1) Sina ranked list (often blocked overseas with 501)
+    try:
+        url = (
+            "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+            f"Market_Center.getHQNodeData?page=1&num={max(limit, 40)}&sort=amount&asc=0&node=sh_a"
+        )
+        rows = json.loads(_get_text(url, referer="https://finance.sina.com.cn/"))
+        for r in rows:
+            code = str(r.get("code") or "").zfill(6)
+            if not is_sse_main(code):
+                continue
+            name = r.get("name") or code
+            price = float(r.get("trade") or 0)
+            prev = float(r.get("settlement") or 0)
+            out[code] = {
+                "code": code,
+                "name": name,
+                "price": price,
+                "prevClose": prev,
+                "open": float(r.get("open") or 0),
+                "high": float(r.get("high") or 0),
+                "low": float(r.get("low") or 0),
+                "change": float(r.get("pricechange") or 0),
+                "changePct": float(r.get("changepercent") or 0),
+                "volume": float(r.get("volume") or 0),
+                "amount": float(r.get("amount") or 0),
+                "turnover": float(r.get("turnoverratio") or 0),
+                "industry": classify_industry(name),
+            }
+    except Exception:
+        out = {}
+
+    # 2) Always merge Tencent core quotes (works on more hosts)
+    codes = list(dict.fromkeys(CORE_CODES + list(out.keys())))[: max(limit, 48)]
+    tq = fetch_quotes_tencent(codes)
+    for code, q in tq.items():
+        if code not in out or (out[code].get("price") or 0) <= 0:
+            out[code] = q
+        else:
+            # keep sina amount if present, refresh price from tencent
+            out[code] = {**out[code], **{k: q[k] for k in ("price", "change", "changePct", "high", "low", "open", "volume") if q.get(k) is not None}}
+
+    if not out:
+        # last resort: tencent only on core
+        out = fetch_quotes_tencent(CORE_CODES)
+
+    ranked = sorted(out.values(), key=lambda x: x.get("amount") or 0, reverse=True)
+    if not ranked:
+        raise RuntimeError("主板行情不可用（公开源均失败，请稍后重试）")
     _cache_set(f"quotes_{limit}", ranked)
     return ranked
+
 
 
 def fetch_klines(code: str, count: int = 90) -> list[dict]:

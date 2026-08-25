@@ -73,6 +73,32 @@ def api_index():
         return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
 
 
+
+@app.get("/api/diag")
+def api_diag():
+    """Data-source diagnostics for cloud deploy."""
+    from .market import fetch_index_quote, fetch_main_board_quotes, fetch_klines
+    info = {"ok": True, "steps": {}}
+    try:
+        q = fetch_index_quote()
+        info["steps"]["index"] = {"ok": True, "price": q.get("price")}
+    except Exception as e:
+        info["steps"]["index"] = {"ok": False, "error": str(e)}
+    try:
+        qs = fetch_main_board_quotes(10)
+        info["steps"]["quotes"] = {"ok": True, "n": len(qs), "sample": qs[0]["code"] if qs else None}
+    except Exception as e:
+        info["steps"]["quotes"] = {"ok": False, "error": str(e)}
+    try:
+        code = (info["steps"].get("quotes") or {}).get("sample") or "600519"
+        bars = fetch_klines(code, 20)
+        info["steps"]["kline"] = {"ok": bool(bars), "n": len(bars), "code": code}
+    except Exception as e:
+        info["steps"]["kline"] = {"ok": False, "error": str(e)}
+    info["ok"] = all(v.get("ok") for v in info["steps"].values())
+    return info
+
+
 @app.get("/api/scan")
 @app.get("/api/scan/")
 def api_scan(force: bool = Query(False)):
