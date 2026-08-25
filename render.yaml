@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: zhuli-radar
+    name: zhuli-radar  # 显示名：主力雷达
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
