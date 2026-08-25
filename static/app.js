@@ -172,7 +172,7 @@ function renderEchoes() {
             ${e.hotSector ? '<span class="tag up">板块共振</span>' : ""}
             ${inds ? `<span class="tag">${inds}</span>` : ""}
           </div>
-          <div class="reason">${a.levelReason || ""} · ${tactics} · 额 ${fmtYi(q.amount)}</div>
+          <div class="reason">${(a.buyAdvice && a.buyAdvice.action) ? ("建议：" + a.buyAdvice.action + " · ") : ""}${a.levelReason || ""} · ${tactics} · 额 ${fmtYi(q.amount)}</div>
         </div>
         <div style="text-align:right">
           <div class="tabular">${fmtPrice(q.price)}</div>
@@ -223,6 +223,30 @@ function renderIndicators(ind) {
     <p class="subtle" style="font-size:0.75rem;margin:0.35rem 0 0">指标不单独定级；与量价阶段冲突时以量价与大盘闸门为准。引擎：${ind.source || "—"}</p>`;
 }
 
+
+function renderBuyAdvice(b) {
+  if (!b) return "";
+  const reasons = (b.reasons || []).map((x) => `<li>${x}</li>`).join("") || "<li>暂无</li>";
+  const risks = (b.risks || []).map((x) => `<li>${x}</li>`).join("") || "<li>暂无</li>";
+  const tone = (b.action || "").includes("不建议") || (b.action || "").includes("暂不")
+    ? "down"
+    : (b.action || "").includes("可")
+      ? "up"
+      : "muted";
+  return `<div class="card" style="margin:0.75rem 0;padding:0.85rem;background:var(--elevated)">
+    <div style="font-weight:600">买入建议 <span class="tag ${tone}">${b.strength || ""}</span></div>
+    <div class="${tone}" style="margin:0.35rem 0;font-size:1.05rem">${b.action || "—"}</div>
+    <p class="muted" style="font-size:0.85rem;margin:0 0 0.5rem">${b.summary || ""}</p>
+    <div style="font-size:0.8rem;color:var(--subtle)">依据</div>
+    <ul class="muted" style="font-size:0.85rem;margin:0.25rem 0 0.5rem;padding-left:1.1rem">${reasons}</ul>
+    <div style="font-size:0.8rem;color:var(--subtle)">风险与约束</div>
+    <ul class="muted" style="font-size:0.85rem;margin:0.25rem 0 0.5rem;padding-left:1.1rem">${risks}</ul>
+    <div style="font-size:0.8rem;color:var(--subtle)">操作思路（研究用）</div>
+    <p class="muted" style="font-size:0.85rem;margin:0.25rem 0 0">${b.plan || ""}</p>
+    <p class="subtle" style="font-size:0.72rem;margin:0.5rem 0 0">不构成投资建议；请独立判断并控制仓位。</p>
+  </div>`;
+}
+
 function renderStockDetail(data) {
   const q = data.quote;
   const a = data.analysis;
@@ -250,6 +274,7 @@ function renderStockDetail(data) {
       </div>
     </div>
     <p class="reason" style="margin:0.75rem 0">${a.levelReason || ""}</p>
+    ${renderBuyAdvice(a.buyAdvice)}
     <div class="index-meta">
       <div class="stat"><div class="label">主力强度</div><div class="val">${a.scores?.force ?? "—"}</div></div>
       <div class="stat"><div class="label">质量</div><div class="val">${a.scores?.quality ?? "—"}</div></div>
