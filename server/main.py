@@ -101,10 +101,10 @@ def api_diag():
 
 @app.get("/api/scan")
 @app.get("/api/scan/")
-def api_scan(force: bool = Query(False)):
+def api_scan(force: bool = Query(False), max_price: float = Query(30, ge=1, le=500)):
     try:
         run_scan, _ = _lazy_scan()
-        data = run_scan(force=force)
+        data = run_scan(force=force, max_price=max_price)
         return {"ok": True, **data}
     except Exception as e:
         traceback.print_exc()

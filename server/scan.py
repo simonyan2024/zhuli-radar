@@ -22,7 +22,7 @@ _scan_at = 0.0
 SCAN_TTL = 18
 
 
-def run_scan(force: bool = False, pool_size: int = 28) -> dict:
+def run_scan(force: bool = False, pool_size: int = 28, max_price: float = 30.0) -> dict:
     global _scan_cache, _scan_at
     if not force and _scan_cache and time.time() - _scan_at < SCAN_TTL:
         return _scan_cache
@@ -34,7 +34,15 @@ def run_scan(force: bool = False, pool_size: int = 28) -> dict:
     index_meta = analyze_index(index_bars, index_q["price"])
     silent = bool(index_meta["silent"])
 
-    quotes = fetch_main_board_quotes(100)[:pool_size]
+    raw = fetch_main_board_quotes(120)
+    # 扫描池：只要价格不超过 max_price（默认 30 元），去掉高价股
+    quotes = [q for q in raw if 0 < float(q.get("price") or 0) <= max_price][:pool_size]
+    if not quotes:
+        # 兜底：放宽到仍无结果时取最低价若干只，避免空雷达
+        quotes = sorted(
+            [q for q in raw if float(q.get("price") or 0) > 0],
+            key=lambda x: float(x.get("price") or 0),
+        )[: min(pool_size, 15)]
     sectors = sector_relative_strength(quotes, index_q["changePct"])
     hot_sectors = [s for s in sectors[:8] if s["excessPct"] > 0.3 and not s["crowded"]]
 
@@ -68,7 +76,7 @@ def run_scan(force: bool = False, pool_size: int = 28) -> dict:
         note = "大盘处于弱势空头，雷达默认静默。仅展示环境与板块，不主动给出可关注列表。"
     else:
         active = [e for e in echoes if e["analysis"]["level"] in ("可关注", "观察")]
-        note = "样本为沪深主板与ETF成交活跃标的（不含创业板）；盘中级别为临时结果，收盘后建议再确认。"
+        note = "样本为沪深主板与ETF、现价≤30元的成交活跃标的（不含创业板与高价股）；盘中级别为临时结果，收盘后建议再确认。"
 
     payload = {
         "asOf": datetime.now().isoformat(timespec="seconds"),
@@ -90,6 +98,7 @@ def run_scan(force: bool = False, pool_size: int = 28) -> dict:
         "active": active[:40],
         "stats": {
             "pool": len(quotes),
+            "maxPrice": max_price,
             "watch": sum(1 for e in echoes if e["analysis"]["level"] == "可关注"),
             "observe": sum(1 for e in echoes if e["analysis"]["level"] == "观察"),
             "caution": sum(1 for e in echoes if e["analysis"]["level"] == "谨慎"),
