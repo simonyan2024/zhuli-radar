@@ -113,7 +113,7 @@ def api_scan(force: bool = Query(False)):
 
 @app.get("/api/stock")
 @app.get("/api/stock/")
-def api_stock(code: str = Query(..., min_length=1, description="上证主板代码，如 600519")):
+def api_stock(code: str = Query(..., min_length=1, description="代码如 600519/000001/510300，不含创业板")):
     try:
         _, analyze_code = _lazy_scan()
         data = analyze_code(code)

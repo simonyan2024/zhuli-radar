@@ -64,8 +64,10 @@ def tdx_stock_klines(code: str, count: int = 120) -> list[dict] | None:
         return None
     try:
         from easy_tdx import TdxClient, Market, KlineCategory
+        from .market import market_prefix
+        mkt = Market.SZ if market_prefix(code) == "sz" else Market.SH
         with TdxClient() as c:
-            df = c.get_security_bars(Market.SH, code, KlineCategory.DAY, 0, count)
+            df = c.get_security_bars(mkt, code, KlineCategory.DAY, 0, count)
         bars = _bars_from_df(df)
         return bars or None
     except Exception as e:
@@ -78,8 +80,10 @@ def tdx_stock_quote(code: str) -> dict | None:
         return None
     try:
         from easy_tdx import TdxClient, Market
+        from .market import market_prefix
+        mkt = Market.SZ if market_prefix(code) == "sz" else Market.SH
         with TdxClient() as c:
-            df = c.get_security_quotes([(Market.SH, code)])
+            df = c.get_security_quotes([(mkt, code)])
         if df is None or getattr(df, "empty", True):
             return None
         row = df.iloc[0]
@@ -117,8 +121,10 @@ def tdx_fund_flow(code: str) -> dict | None:
         return None
     try:
         from easy_tdx import TdxClient, Market
+        from .market import market_prefix
+        mkt = Market.SZ if market_prefix(code) == "sz" else Market.SH
         with TdxClient() as c:
-            ff = c.get_fund_flow(Market.SH, code)
+            ff = c.get_fund_flow(mkt, code)
         if ff is None:
             return None
         if hasattr(ff, "to_dict"):

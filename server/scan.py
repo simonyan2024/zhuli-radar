@@ -68,7 +68,7 @@ def run_scan(force: bool = False, pool_size: int = 28) -> dict:
         note = "大盘处于弱势空头，雷达默认静默。仅展示环境与板块，不主动给出可关注列表。"
     else:
         active = [e for e in echoes if e["analysis"]["level"] in ("可关注", "观察")]
-        note = "样本为上证主板成交额靠前标的；盘中级别为临时结果，收盘后建议再确认。"
+        note = "样本为沪深主板与ETF成交活跃标的（不含创业板）；盘中级别为临时结果，收盘后建议再确认。"
 
     payload = {
         "asOf": datetime.now().isoformat(timespec="seconds"),

@@ -18,15 +18,27 @@ TZ = timezone(timedelta(hours=8))
 
 # Core Shanghai main-board names (fallback / always include)
 CORE_CODES = [
+    # 上证主板
     "600519", "601318", "600036", "601166", "600900", "601899",
     "600276", "603259", "600030", "601398", "600887", "600309",
     "600406", "601888", "600000", "601288", "600028", "601857",
     "600104", "601601", "600016", "601328", "600050", "601668",
-    "600031", "600048", "600111", "600150", "600196", "600276",
-    "600438", "600585", "600690", "600809", "600893", "600938",
-    "601012", "601088", "601225", "601318", "601628", "601633",
-    "601668", "601728", "601766", "601919", "601985", "603288",
-    "603501", "603799", "605117", "605499",
+    "600031", "600048", "600111", "600150", "600690", "600809",
+    "601012", "601088", "601628", "601633", "601728", "601766",
+    "601985", "603288", "603501", "603799",
+    # 深市主板（非创业板）
+    "000001", "000002", "000063", "000100", "000157", "000166",
+    "000333", "000338", "000425", "000538", "000568", "000625",
+    "000651", "000725", "000768", "000776", "000858", "000895",
+    "000938", "000977", "001979", "002001", "002027", "002142",
+    "002230", "002241", "002352", "002415", "002475", "002594",
+    "002714", "002736",
+    # 常见 ETF
+    "510050", "510300", "510500", "510880", "512000", "512100",
+    "512480", "512660", "512690", "512760", "512880", "512980",
+    "513050", "513100", "513180", "513500", "515790", "516160",
+    "518880", "588000", "588080", "159915", "159919", "159922",
+    "159925", "159941", "159995",
 ]
 
 # Simple industry tags for demo auto-classification
@@ -45,6 +57,7 @@ INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     "有色": ["铜", "铝", "锌", "黄金", "有色", "矿业"],
     "石油": ["石油", "石化", "油气"],
     "军工": ["军工", "航发", "航天", "兵器"],
+    "ETF": ["ETF", "基金"],
 }
 
 _cache: dict[str, Any] = {}
@@ -92,9 +105,56 @@ def session_label(s: str) -> str:
     }.get(s, s)
 
 
-def is_sse_main(code: str) -> bool:
-    c = code.replace("sh", "").replace("SH", "")
+def normalize_code(raw: str) -> str:
+    s = (raw or "").strip().upper()
+    s = s.replace("SH", "").replace("SZ", "").replace(".", "")
+    s = "".join(ch for ch in s if ch.isdigit())
+    if len(s) > 6:
+        s = s[-6:]
+    return s.zfill(6) if s else ""
+
+
+def market_prefix(code: str) -> str:
+    c = normalize_code(code)
+    if c.startswith(("5", "6")):
+        return "sh"
+    if c.startswith(("0", "1", "2", "3")):
+        return "sz"
+    return "sh"
+
+
+def is_chinext(code: str) -> bool:
+    c = normalize_code(code)
+    return c.startswith(("300", "301"))
+
+
+def is_etf(code: str) -> bool:
+    c = normalize_code(code)
+    return bool(re.match(r"^(51|52|56|58)\d{4}$", c) or re.match(r"^(15|16)\d{4}$", c))
+
+
+def is_sh_main(code: str) -> bool:
+    c = normalize_code(code)
     return bool(re.match(r"^(600|601|603|605)\d{3}$", c))
+
+
+def is_sz_main(code: str) -> bool:
+    c = normalize_code(code)
+    if is_chinext(c):
+        return False
+    return bool(re.match(r"^(000|001|002)\d{3}$", c))
+
+
+def is_allowed_symbol(code: str) -> bool:
+    c = normalize_code(code)
+    if not c or is_chinext(c):
+        return False
+    return is_sh_main(c) or is_sz_main(c) or is_etf(c)
+
+
+def is_sse_main(code: str) -> bool:
+    return is_allowed_symbol(code)
+
 
 
 def _get(url: str, timeout: float = 12, referer: str | None = None) -> bytes:
@@ -277,7 +337,7 @@ def fetch_quotes_tencent(codes: list[str]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for i in range(0, len(codes), 40):
         batch = codes[i : i + 40]
-        q = ",".join(f"sh{c}" for c in batch)
+        q = ",".join(f"{market_prefix(c)}{c}" for c in batch)
         try:
             text = _get_text(
                 f"https://qt.gtimg.cn/q={q}",
@@ -308,14 +368,21 @@ def fetch_main_board_quotes(limit: int = 80) -> list[dict]:
 
     # 1) Sina ranked list (often blocked overseas with 501)
     try:
-        url = (
-            "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-            f"Market_Center.getHQNodeData?page=1&num={max(limit, 40)}&sort=amount&asc=0&node=sh_a"
-        )
-        rows = json.loads(_get_text(url, referer="https://finance.sina.com.cn/"))
+        rows = []
+        for node in ("sh_a", "sz_a"):
+            try:
+                url = (
+                    "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                    f"Market_Center.getHQNodeData?page=1&num={max(limit // 2, 30)}&sort=amount&asc=0&node={node}"
+                )
+                part = json.loads(_get_text(url, referer="https://finance.sina.com.cn/"))
+                if isinstance(part, list):
+                    rows.extend(part)
+            except Exception:
+                continue
         for r in rows:
             code = str(r.get("code") or "").zfill(6)
-            if not is_sse_main(code):
+            if not is_allowed_symbol(code):
                 continue
             name = r.get("name") or code
             price = float(r.get("trade") or 0)
@@ -373,7 +440,7 @@ def fetch_klines(code: str, count: int = 90) -> list[dict]:
             return tb
     except Exception:
         pass
-    symbol = f"sh{code}"
+    symbol = f"{market_prefix(code)}{code}"
     url = f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={symbol},day,,,{count},qfq"
     try:
         data = json.loads(_get_text(url))
@@ -449,22 +516,13 @@ def fetch_klines_batch(codes: list[str], count: int = 90, workers: int = 12) -> 
     return result
 
 
-def normalize_code(raw: str) -> str:
-    s = (raw or "").strip().upper()
-    s = s.replace("SH", "").replace("SZ", "").replace(".", "")
-    s = "".join(ch for ch in s if ch.isdigit())
-    if len(s) > 6:
-        s = s[-6:]
-    return s.zfill(6) if s else ""
-
-
 def fetch_stock_quote(code: str) -> dict:
     """Single SSE main-board quote: TDX first, then Tencent."""
     code = normalize_code(code)
     if not code:
         raise ValueError("请输入股票代码")
     if not is_sse_main(code):
-        raise ValueError("当前仅支持上证主板（600/601/603/605）")
+        raise ValueError("支持上证/深市主板与ETF；不支持创业板(300/301)")
     try:
         from .tdx_bridge import tdx_stock_quote
         tq = tdx_stock_quote(code)
@@ -474,7 +532,7 @@ def fetch_stock_quote(code: str) -> dict:
             return tq
     except Exception:
         pass
-    text = _get_text(f"https://qt.gtimg.cn/q=sh{code}", encoding="gbk")
+    text = _get_text(f"https://qt.gtimg.cn/q={market_prefix(code)}{code}", encoding="gbk")
     m = __import__("re").search(r'="([^"]*)"', text)
     if not m or not m.group(1) or m.group(1) == "1":
         raise RuntimeError(f"未找到股票 {code}")
