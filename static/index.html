@@ -12,7 +12,7 @@
     <header class="app">
       <div class="brand">
         <h1>主力雷达</h1>
-        <span>上证主板 · 研究雷达</span>
+        <span>沪深主板 · ETF · 研究雷达</span>
       </div>
       <div class="header-right">
         <span id="sessionPill" class="pill">—</span>
@@ -67,7 +67,7 @@
     <section id="view-stock" class="hidden">
       <div class="card">
         <h2>个股分析</h2>
-        <p class="muted" style="font-size:0.9rem">输入上证主板代码（如 600519），查看阶段、手法、相对大盘与建议级别。可加入自选。</p>
+        <p class="muted" style="font-size:0.9rem">输入代码（上证/深市主板或 ETF，如 600519、000001、510300；不含创业板 300/301），查看阶段、手法、相对大盘与建议级别。可加入自选。</p>
         <form id="stockForm" class="toolbar" style="margin-top:0.75rem">
           <label style="flex:1;min-width:12rem">代码
             <input id="stockCode" type="text" inputmode="numeric" placeholder="600519" maxlength="8" style="width:100%;max-width:12rem" autocomplete="off" />
@@ -116,8 +116,8 @@
         <h2>现行扫描规则（只读说明）</h2>
         <ol class="muted" style="font-size:0.9rem;line-height:1.7;padding-left:1.2rem">
           <li><strong>大盘闸门</strong>：弱势空头 → 雷达静默。</li>
-          <li><strong>股票池</strong>：上证主板成交额靠前。</li>
-          <li><strong>个股页</strong>：可输入任意上证主板代码做完整量价分析。</li>
+          <li><strong>股票池</strong>：沪深主板 + ETF 成交活跃标的；排除创业板（300/301）。</li>
+          <li><strong>个股页</strong>：可输入沪深主板或 ETF 代码做完整量价分析。</li>
           <li><strong>自选</strong>：本地保存，可批量刷新级别。</li>
           <li><strong>定级</strong>：可关注 / 观察 / 谨慎 / 回避。</li>
           <li><strong>easy-tdx（可选）</strong>：安装后优先通达信行情；并计算 MACD/RSI/KDJ/布林作辅助证据，不定级覆盖量价结论。</li>
@@ -127,7 +127,7 @@
     </section>
 
     <p class="footer-note">
-      主力雷达 · 个人研究。公开行情可能延迟。仅上证主板（600/601/603/605）。
+      主力雷达 · 个人研究。公开行情可能延迟。范围：上证/深市主板 + ETF；不含创业板。
     </p>
   </div>
   <script src="/static/app.js"></script>
