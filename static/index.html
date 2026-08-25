@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0c0d0b" />
-  <title>主力鉴 · 研究雷达</title>
+  <title>主力雷达</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="wrap">
     <header class="app">
       <div class="brand">
-        <h1>主力鉴</h1>
+        <h1>主力雷达</h1>
         <span>上证主板 · 研究雷达</span>
       </div>
       <div class="header-right">
@@ -20,6 +20,8 @@
         <span id="clock" class="pill mono">—</span>
         <div class="nav">
           <button type="button" data-view="radar" class="active">雷达</button>
+          <button type="button" data-view="stock">个股</button>
+          <button type="button" data-view="watch">自选</button>
           <button type="button" data-view="backtest">回测</button>
           <button type="button" data-view="rules">规则</button>
         </div>
@@ -37,7 +39,6 @@
           <div class="index-meta" id="indexMeta"></div>
           <p id="scanNote" class="subtle" style="font-size:0.75rem;margin:0.85rem 0 0"></p>
         </aside>
-
         <div>
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;flex-wrap:wrap">
@@ -54,12 +55,38 @@
             </div>
             <div id="echoList" class="loading">正在扫描公开行情…</div>
           </div>
-
           <div class="card" style="margin-top:1rem">
             <h2>板块相对强度</h2>
             <p class="subtle" style="font-size:0.8rem;margin:0 0 0.5rem">按行业标签聚合当日涨跌，相对上证超额；拥挤板块会降权展示。</p>
             <div id="sectorList" class="loading">计算中…</div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-stock" class="hidden">
+      <div class="card">
+        <h2>个股分析</h2>
+        <p class="muted" style="font-size:0.9rem">输入上证主板代码（如 600519），查看阶段、手法、相对大盘与建议级别。可加入自选。</p>
+        <form id="stockForm" class="toolbar" style="margin-top:0.75rem">
+          <label style="flex:1;min-width:12rem">代码
+            <input id="stockCode" type="text" inputmode="numeric" placeholder="600519" maxlength="8" style="width:100%;max-width:12rem" autocomplete="off" />
+          </label>
+          <button type="submit" class="primary">分析</button>
+          <button type="button" id="btnWatchToggle">加入自选</button>
+        </form>
+        <div id="stockResult" class="muted" style="margin-top:0.75rem">输入代码后点分析。</div>
+      </div>
+    </section>
+
+    <section id="view-watch" class="hidden">
+      <div class="card">
+        <h2>自选股</h2>
+        <p class="subtle" style="font-size:0.8rem;margin:0 0 0.75rem">保存在本机浏览器，不上传账号。点代码可看个股分析。</p>
+        <div id="watchList" class="loading">暂无自选</div>
+        <div class="toolbar" style="margin-top:0.75rem">
+          <button type="button" id="btnRefreshWatch">刷新行情级别</button>
+          <button type="button" id="btnClearWatch">清空自选</button>
         </div>
       </div>
     </section>
@@ -88,19 +115,19 @@
       <div class="card">
         <h2>现行扫描规则（只读说明）</h2>
         <ol class="muted" style="font-size:0.9rem;line-height:1.7;padding-left:1.2rem">
-          <li><strong>大盘闸门</strong>：弱势空头 → 雷达静默，不主动给出可关注列表。</li>
-          <li><strong>股票池</strong>：上证主板成交额靠前 + 核心权重，排除科创板。</li>
-          <li><strong>板块层</strong>：行业名自动归类，看相对上证超额与广度；拥挤则标记。</li>
-          <li><strong>个股层</strong>：量价阶段（吸筹/洗盘/拉升/出货/下跌/横盘）+ 相对强弱 + 手法标签。</li>
-          <li><strong>定级</strong>：可关注 / 观察 / 谨慎 / 回避；否决优先于追涨。</li>
-          <li><strong>新闻</strong>：一期未接自动源；规格中为可插拔事件层（公告优先）。</li>
+          <li><strong>大盘闸门</strong>：弱势空头 → 雷达静默。</li>
+          <li><strong>股票池</strong>：上证主板成交额靠前。</li>
+          <li><strong>个股页</strong>：可输入任意上证主板代码做完整量价分析。</li>
+          <li><strong>自选</strong>：本地保存，可批量刷新级别。</li>
+          <li><strong>定级</strong>：可关注 / 观察 / 谨慎 / 回避。</li>
+          <li><strong>easy-tdx（可选）</strong>：安装后优先通达信行情；并计算 MACD/RSI/KDJ/布林作辅助证据，不定级覆盖量价结论。</li>
         </ol>
-        <p class="subtle" style="font-size:0.8rem;margin-top:1rem">研究辅助，不构成投资建议。A 股 T+1，涨跌停与公开数据延迟会影响实盘。</p>
+        <p class="subtle" style="font-size:0.8rem;margin-top:1rem">研究辅助，不构成投资建议。</p>
       </div>
     </section>
 
     <p class="footer-note">
-      主力鉴 · 个人研究雷达演示。行情来自公开接口，可能延迟或失败。刷新周期内大盘与扫描结果共用时间戳。
+      主力雷达 · 个人研究。公开行情可能延迟。仅上证主板（600/601/603/605）。
     </p>
   </div>
   <script src="/static/app.js"></script>

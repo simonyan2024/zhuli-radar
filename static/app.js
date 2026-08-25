@@ -1,9 +1,11 @@
-/* 主力鉴 radar client */
+/* 主力雷达 client v0.2 — scan + stock + watchlist */
 
 const REFRESH_MS = 25000;
+const WATCH_KEY = "zhuli_watch_v1";
 let scanData = null;
 let levelFilter = "全部";
 let timer = null;
+let currentStock = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -12,25 +14,20 @@ function pctClass(n) {
   if (n < -0.0005) return "down";
   return "muted";
 }
-
 function fmtPct(n) {
   if (n == null || Number.isNaN(n)) return "—";
-  const s = n > 0 ? "+" : "";
-  return s + n.toFixed(2) + "%";
+  return (n > 0 ? "+" : "") + Number(n).toFixed(2) + "%";
 }
-
 function fmtPrice(n) {
   if (n == null || Number.isNaN(n)) return "—";
   return Number(n).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
 function fmtYi(n) {
   if (!n) return "—";
   if (n >= 1e8) return (n / 1e8).toFixed(1) + "亿";
   if (n >= 1e4) return (n / 1e4).toFixed(0) + "万";
   return String(Math.round(n));
 }
-
 function levelTone(level) {
   if (level === "可关注") return "up";
   if (level === "回避") return "down";
@@ -38,8 +35,46 @@ function levelTone(level) {
   return "";
 }
 
-function drawSpark(bars) {
-  const svg = $("spark");
+function getWatch() {
+  try {
+    return JSON.parse(localStorage.getItem(WATCH_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+function setWatch(list) {
+  localStorage.setItem(WATCH_KEY, JSON.stringify(list));
+}
+function isWatched(code) {
+  return getWatch().some((x) => x.code === code);
+}
+function toggleWatch(code, name) {
+  let list = getWatch();
+  if (list.some((x) => x.code === code)) {
+    list = list.filter((x) => x.code !== code);
+  } else {
+    list.unshift({ code, name: name || code, addedAt: Date.now() });
+  }
+  setWatch(list);
+  updateWatchBtn();
+  renderWatchList();
+}
+
+function updateWatchBtn() {
+  const btn = $("btnWatchToggle");
+  if (!btn) return;
+  if (!currentStock) {
+    btn.textContent = "加入自选";
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  btn.textContent = isWatched(currentStock.code) ? "取消自选" : "加入自选";
+}
+
+function drawSpark(svgId, bars) {
+  const svg = $(svgId);
+  if (!svg) return;
   if (!bars || bars.length < 2) {
     svg.innerHTML = "";
     return;
@@ -75,7 +110,7 @@ function renderIndex(data) {
     <div class="stat"><div class="label">扫描耗时</div><div class="val tabular">${data.elapsedMs || "—"} ms</div></div>
   `;
   $("scanNote").textContent = data.note || "";
-  drawSpark(idx.bars || []);
+  drawSpark("spark", idx.bars || []);
   $("sessionPill").textContent = data.sessionLabel || data.session || "—";
   const silent = data.silent;
   const sp = $("silentPill");
@@ -86,17 +121,20 @@ function renderIndex(data) {
   $("statsLine").textContent = `池 ${st.pool || 0} · 可关注 ${st.watch || 0} · 观察 ${st.observe || 0} · 谨慎 ${st.caution || 0} · 回避 ${st.avoid || 0}`;
 }
 
+function openStock(code) {
+  $("stockCode").value = code;
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.remove("active"));
+  document.querySelector('.nav button[data-view="stock"]').classList.add("active");
+  showView("stock");
+  loadStock(code);
+}
+
 function filteredEchoes() {
   if (!scanData) return [];
   let list = scanData.echoes || [];
-  if (levelFilter === "热门板块") {
-    list = list.filter((e) => e.hotSector);
-  } else if (levelFilter !== "全部") {
-    list = list.filter((e) => e.analysis.level === levelFilter);
-  }
-  if (scanData.silent && levelFilter === "可关注") {
-    return [];
-  }
+  if (levelFilter === "热门板块") list = list.filter((e) => e.hotSector);
+  else if (levelFilter !== "全部") list = list.filter((e) => e.analysis.level === levelFilter);
+  if (scanData.silent && levelFilter === "可关注") return [];
   return list;
 }
 
@@ -107,12 +145,12 @@ function renderEchoes() {
     return;
   }
   if (scanData.silent && levelFilter === "可关注") {
-    box.innerHTML = `<div class="empty">雷达静默中：弱势空头下不主动给出「可关注」。可切换到「全部」查看结构。</div>`;
+    box.innerHTML = `<div class="empty">雷达静默中：弱势空头下不主动给出「可关注」。</div>`;
     return;
   }
   const list = filteredEchoes();
   if (!list.length) {
-    box.innerHTML = `<div class="empty">本屏无回波。空结果是正常状态。</div>`;
+    box.innerHTML = `<div class="empty">本屏无回波。</div>`;
     return;
   }
   box.innerHTML = list
@@ -122,9 +160,10 @@ function renderEchoes() {
       const tone = levelTone(a.level);
       const tactics = (a.tactics || []).map((t) => t.name).slice(0, 2).join(" · ") || "手法不显著";
       const inds = (q.industry || []).slice(0, 2).join(" / ");
-      return `<div class="echo">
+      const watched = isWatched(q.code) ? "★" : "";
+      return `<div class="echo" data-code="${q.code}" style="cursor:pointer">
         <div>
-          <div class="name">${q.name}<span class="code">${q.code}</span></div>
+          <div class="name">${watched}${q.name}<span class="code">${q.code}</span></div>
           <div class="tags">
             <span class="tag ${tone}">${a.level}</span>
             <span class="tag">${a.phase}</span>
@@ -142,6 +181,9 @@ function renderEchoes() {
       </div>`;
     })
     .join("");
+  box.querySelectorAll(".echo").forEach((el) => {
+    el.addEventListener("click", () => openStock(el.dataset.code));
+  });
 }
 
 function renderSectors() {
@@ -165,19 +207,235 @@ function renderSectors() {
     .join("");
 }
 
+
+function renderIndicators(ind) {
+  if (!ind || !ind.ok) return "";
+  const macd = ind.macd || {};
+  const boll = ind.boll || {};
+  const kdj = ind.kdj || {};
+  return `<h3 style="font-family:var(--display);font-size:0.95rem;margin:1rem 0 0.4rem">技术指标（辅助）</h3>
+    <div class="index-meta">
+      <div class="stat"><div class="label">MACD</div><div class="val tabular">${macd.cross || "—"} / hist ${macd.hist ?? "—"}</div></div>
+      <div class="stat"><div class="label">RSI</div><div class="val tabular">${ind.rsi ?? "—"}</div></div>
+      <div class="stat"><div class="label">布林中轨</div><div class="val tabular">${boll.mid ?? "—"}</div></div>
+      <div class="stat"><div class="label">KDJ.J</div><div class="val tabular">${kdj.j ?? "—"}</div></div>
+    </div>
+    <p class="subtle" style="font-size:0.75rem;margin:0.35rem 0 0">指标不单独定级；与量价阶段冲突时以量价与大盘闸门为准。引擎：${ind.source || "—"}</p>`;
+}
+
+function renderStockDetail(data) {
+  const q = data.quote;
+  const a = data.analysis;
+  const idx = data.index || {};
+  const tone = levelTone(a.level);
+  const tactics = (a.tactics || [])
+    .map((t) => `<div class="sector-row"><span>${t.name} <span class="tag">${t.side}</span></span><span class="subtle">${t.evidence}</span></div>`)
+    .join("") || `<div class="subtle">手法标签不显著</div>`;
+  const evidence = (a.evidence || []).map((x) => `<li>${x}</li>`).join("");
+  $("stockResult").innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+      <div>
+        <div class="name" style="font-size:1.2rem;font-weight:600">${q.name} <span class="code">${q.code}</span></div>
+        <div class="tags" style="margin-top:0.4rem">
+          <span class="tag ${tone}">${a.level}</span>
+          <span class="tag">${a.phase}</span>
+          <span class="tag">${a.mind}</span>
+          <span class="tag">${a.vsIndex}</span>
+          ${(q.industry || []).map((i) => `<span class="tag">${i}</span>`).join("")}
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div class="index-price tabular" style="font-size:1.6rem">${fmtPrice(q.price)}</div>
+        <div class="tabular ${pctClass(q.changePct)}">${fmtPct(q.changePct)}</div>
+      </div>
+    </div>
+    <p class="reason" style="margin:0.75rem 0">${a.levelReason || ""}</p>
+    <div class="index-meta">
+      <div class="stat"><div class="label">主力强度</div><div class="val">${a.scores?.force ?? "—"}</div></div>
+      <div class="stat"><div class="label">质量</div><div class="val">${a.scores?.quality ?? "—"}</div></div>
+      <div class="stat"><div class="label">风险</div><div class="val">${a.scores?.risk ?? "—"}</div></div>
+      <div class="stat"><div class="label">大盘环境</div><div class="val">${idx.regime || "—"}</div></div>
+    </div>
+    ${renderIndicators(data.indicators)}
+    <p class="subtle" style="font-size:0.75rem;margin:0.5rem 0 0">数据源：${data.dataSource || "public"}</p>
+    <svg id="stockSpark" class="spark" viewBox="0 0 300 64" preserveAspectRatio="none" style="margin-top:0.75rem"></svg>
+    <h3 style="font-family:var(--display);font-size:0.95rem;margin:1rem 0 0.4rem">手法</h3>
+    ${tactics}
+    <h3 style="font-family:var(--display);font-size:0.95rem;margin:1rem 0 0.4rem">证据</h3>
+    <ul class="muted" style="font-size:0.85rem;padding-left:1.1rem;margin:0">${evidence}</ul>
+    <p class="subtle" style="font-size:0.75rem;margin-top:0.75rem">${data.note || ""} · ${a.vsIndexDetail || ""}</p>
+  `;
+  drawSpark("stockSpark", data.bars || []);
+  currentStock = { code: q.code, name: q.name };
+  updateWatchBtn();
+}
+
+async function loadStock(code) {
+  const box = $("stockResult");
+  box.innerHTML = `<div class="loading">分析中…</div>`;
+  try {
+    const res = await fetch("/api/stock?code=" + encodeURIComponent(code.trim()));
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error("接口非 JSON（HTTP " + res.status + "）：" + raw.slice(0, 100));
+    }
+    if (!res.ok || data.ok === false) throw new Error(data.error || "HTTP " + res.status);
+    renderStockDetail(data);
+  } catch (err) {
+    currentStock = null;
+    updateWatchBtn();
+    box.innerHTML = `<div class="err">${err.message || err}</div>`;
+  }
+}
+
+function renderWatchList() {
+  const box = $("watchList");
+  const list = getWatch();
+  if (!list.length) {
+    box.innerHTML = `<div class="empty">暂无自选。在「个股」分析后点「加入自选」，或点雷达列表进个股再加。</div>`;
+    return;
+  }
+  box.innerHTML = list
+    .map((x) => {
+      const st = x._status || {};
+      const tone = levelTone(st.level);
+      return `<div class="echo" data-code="${x.code}" style="cursor:pointer">
+        <div>
+          <div class="name">${x.name || x.code}<span class="code">${x.code}</span></div>
+          <div class="tags">
+            ${st.level ? `<span class="tag ${tone}">${st.level}</span>` : `<span class="tag">待刷新</span>`}
+            ${st.phase ? `<span class="tag">${st.phase}</span>` : ""}
+            ${st.vsIndex ? `<span class="tag">${st.vsIndex}</span>` : ""}
+          </div>
+          <div class="reason">${st.levelReason || "点此查看个股分析"}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="tabular">${st.price != null ? fmtPrice(st.price) : "—"}</div>
+          <div class="tabular ${pctClass(st.changePct || 0)}">${st.changePct != null ? fmtPct(st.changePct) : ""}</div>
+          <button type="button" class="btn-rm" data-rm="${x.code}" style="margin-top:0.35rem;font-size:0.75rem">移除</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+  box.querySelectorAll(".echo").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      if (ev.target.classList.contains("btn-rm")) return;
+      openStock(el.dataset.code);
+    });
+  });
+  box.querySelectorAll(".btn-rm").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      toggleWatch(btn.dataset.rm);
+    });
+  });
+}
+
+async function refreshWatch() {
+  const list = getWatch();
+  if (!list.length) return;
+  $("watchList").innerHTML = `<div class="loading">刷新中…</div>`;
+  const next = [];
+  for (const item of list) {
+    try {
+      const res = await fetch("/api/stock?code=" + encodeURIComponent(item.code));
+      const data = await res.json();
+      if (data.ok === false) throw new Error(data.error);
+      next.push({
+        ...item,
+        name: data.quote?.name || item.name,
+        _status: {
+          price: data.quote?.price,
+          changePct: data.quote?.changePct,
+          level: data.analysis?.level,
+          phase: data.analysis?.phase,
+          vsIndex: data.analysis?.vsIndex,
+          levelReason: data.analysis?.levelReason,
+        },
+      });
+    } catch {
+      next.push({ ...item, _status: { levelReason: "刷新失败" } });
+    }
+  }
+  setWatch(next.map(({ _status, ...rest }) => rest));
+  // keep status in memory for render
+  const merged = next;
+  localStorage.setItem(WATCH_KEY, JSON.stringify(merged.map(({ _status, ...r }) => r)));
+  // temporarily attach status for UI
+  const saved = getWatch().map((x) => {
+    const hit = merged.find((m) => m.code === x.code);
+    return hit || x;
+  });
+  // write statuses onto objects for renderWatchList via a side channel
+  window.__watchStatus = Object.fromEntries(merged.map((m) => [m.code, m._status]));
+  // patch render to use __watchStatus
+  const box = $("watchList");
+  box.innerHTML = saved
+    .map((x) => {
+      const st = (window.__watchStatus && window.__watchStatus[x.code]) || {};
+      const tone = levelTone(st.level);
+      return `<div class="echo" data-code="${x.code}" style="cursor:pointer">
+        <div>
+          <div class="name">${x.name || x.code}<span class="code">${x.code}</span></div>
+          <div class="tags">
+            ${st.level ? `<span class="tag ${tone}">${st.level}</span>` : `<span class="tag">—</span>`}
+            ${st.phase ? `<span class="tag">${st.phase}</span>` : ""}
+            ${st.vsIndex ? `<span class="tag">${st.vsIndex}</span>` : ""}
+          </div>
+          <div class="reason">${st.levelReason || ""}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="tabular">${st.price != null ? fmtPrice(st.price) : "—"}</div>
+          <div class="tabular ${pctClass(st.changePct || 0)}">${st.changePct != null ? fmtPct(st.changePct) : ""}</div>
+          <button type="button" class="btn-rm" data-rm="${x.code}" style="margin-top:0.35rem;font-size:0.75rem">移除</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+  box.querySelectorAll(".echo").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      if (ev.target.classList.contains("btn-rm")) return;
+      openStock(el.dataset.code);
+    });
+  });
+  box.querySelectorAll(".btn-rm").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      toggleWatch(btn.dataset.rm);
+    });
+  });
+}
+
 async function loadScan(force = false) {
   try {
-    const res = await fetch("/api/scan?force=" + (force ? "1" : "0"));
-    const data = await res.json();
-    if (!data.ok && data.error) throw new Error(data.error);
+    const res = await fetch("/api/scan?force=" + (force ? "true" : "false"));
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      throw new Error("接口返回非 JSON（HTTP " + res.status + "）：" + raw.slice(0, 120));
+    }
+    if (!res.ok || (data.ok === false && data.error)) throw new Error(data.error || "HTTP " + res.status);
     scanData = data;
     renderIndex(data);
     renderEchoes();
     renderSectors();
   } catch (err) {
     $("echoList").innerHTML = `<div class="err">扫描失败：${err.message || err}</div>`;
-    $("regimeBox").textContent = "行情源暂时不可用，将自动重试。";
+    $("regimeBox").textContent = "请检查 /api/health 与 /api/scan。";
   }
+}
+
+function showView(v) {
+  ["radar", "stock", "watch", "backtest", "rules"].forEach((name) => {
+    const el = $("view-" + name);
+    if (el) el.classList.toggle("hidden", name !== v);
+  });
+  if (v === "watch") renderWatchList();
 }
 
 function setupNav() {
@@ -185,10 +443,7 @@ function setupNav() {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".nav button").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      const v = btn.dataset.view;
-      $("view-radar").classList.toggle("hidden", v !== "radar");
-      $("view-backtest").classList.toggle("hidden", v !== "backtest");
-      $("view-rules").classList.toggle("hidden", v !== "rules");
+      showView(btn.dataset.view);
     });
   });
   document.querySelectorAll("#levelFilters button").forEach((btn) => {
@@ -198,6 +453,22 @@ function setupNav() {
       levelFilter = btn.dataset.level;
       renderEchoes();
     });
+  });
+  $("stockForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const code = $("stockCode").value.trim();
+    if (code) loadStock(code);
+  });
+  $("btnWatchToggle").addEventListener("click", () => {
+    if (currentStock) toggleWatch(currentStock.code, currentStock.name);
+  });
+  $("btnRefreshWatch").addEventListener("click", refreshWatch);
+  $("btnClearWatch").addEventListener("click", () => {
+    if (confirm("确定清空全部自选？")) {
+      setWatch([]);
+      renderWatchList();
+      updateWatchBtn();
+    }
   });
 }
 
@@ -226,7 +497,7 @@ function drawEquity(curve) {
 
 async function runBacktest() {
   const box = $("btResult");
-  box.innerHTML = `<div class="loading">回测运行中（拉取K线与复权计算，约数十秒）…</div>`;
+  box.innerHTML = `<div class="loading">回测运行中…</div>`;
   const levels = $("btLevels").value;
   const hold = $("btHold").value;
   try {
@@ -248,9 +519,8 @@ async function runBacktest() {
         <div class="stat"><div class="label">超额</div><div class="val tabular ${pctClass((data.excessReturn || 0) * 100)}">${fmtPct((data.excessReturn || 0) * 100)}</div></div>
         <div class="stat"><div class="label">最大回撤</div><div class="val tabular">${fmtPct((data.maxDrawdown || 0) * 100)}</div></div>
       </div>
-      <p class="subtle" style="font-size:0.8rem;margin:0.75rem 0">${data.start} → ${data.end} · 成交 ${data.trades} 笔 · ${data.note}</p>
+      <p class="subtle" style="font-size:0.8rem;margin:0.75rem 0">${data.start} → ${data.end} · 成交 ${data.trades} 笔</p>
       ${drawEquity(data.equityCurve)}
-      <h3 style="font-family:var(--display);font-size:1rem;margin:1rem 0 0.5rem">最近成交</h3>
       <table class="table"><thead><tr><th>日期</th><th>方向</th><th>标的</th><th>价格</th><th>原因</th></tr></thead><tbody>${trades || "<tr><td colspan=5>无成交</td></tr>"}</tbody></table>
     `;
   } catch (err) {
@@ -264,6 +534,7 @@ function startTimer() {
 }
 
 setupNav();
+updateWatchBtn();
 $("btRun").addEventListener("click", runBacktest);
 loadScan(true);
 startTimer();
