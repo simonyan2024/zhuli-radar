@@ -19,3 +19,22 @@ python -m uvicorn server.main:app --host 0.0.0.0 --port 8765
 ```
 
 研究辅助，不构成投资建议。
+
+
+## 数据源：AkShare / Tushare
+
+安装：
+
+```bash
+pip install akshare tushare pandas
+```
+
+Tushare 需在 [tushare.pro](https://tushare.pro) 注册拿到 token，部署时设置环境变量：
+
+```bash
+export TUSHARE_TOKEN=你的token
+```
+
+Render：Dashboard → Environment → 添加 `TUSHARE_TOKEN`。
+
+调用顺序：通达信(easy-tdx) → AkShare → Tushare → 公开 HTTP。

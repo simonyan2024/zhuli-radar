@@ -1,5 +1,8 @@
 fastapi>=0.110,<1
 uvicorn[standard]>=0.27,<1
-# optional: richer data + indicators (may fail on some overseas hosts)
-# easy-tdx>=1.20
 pandas>=2.0
+# 行情增强（可选，建议安装以减少「样本不足」）
+akshare>=1.14
+tushare>=1.2
+# easy-tdx 可选：本机/国内更稳
+# easy-tdx>=1.20
